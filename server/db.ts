@@ -3,25 +3,52 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+interface MongooseCache {
+  conn: typeof mongoose | null;
+  promise: Promise<typeof mongoose | null> | null;
+}
+
+declare global {
+  // eslint-disable-next-line no-var
+  var mongooseCache: MongooseCache | undefined;
+}
+
+let cached: MongooseCache = global.mongooseCache || { conn: null, promise: null };
+if (!global.mongooseCache) {
+  global.mongooseCache = cached;
+}
+
 export async function connectDB(): Promise<boolean> {
   const uri = process.env.MONGODB_URI;
 
   if (!uri || uri.includes("<username>") || uri.includes("<password>")) {
-    console.warn("⚠️  [MongoDB] No valid MONGODB_URI found in .env. Please configure your MongoDB Atlas connection string.");
+    console.warn("⚠️  [MongoDB] No valid MONGODB_URI found in environment variables.");
     return false;
   }
 
-  try {
-    mongoose.set("strictQuery", false);
-    await mongoose.connect(uri, {
-      serverSelectionTimeoutMS: 5000,
-    });
-    console.log("✅ [MongoDB] Connected successfully to database:", mongoose.connection.name);
+  if (cached.conn && mongoose.connection.readyState === 1) {
     return true;
-  } catch (error) {
-    console.error("❌ [MongoDB] Connection error:", error instanceof Error ? error.message : error);
-    return false;
   }
+
+  if (!cached.promise) {
+    mongoose.set("strictQuery", false);
+    cached.promise = mongoose
+      .connect(uri, {
+        serverSelectionTimeoutMS: 5000,
+      })
+      .then((m) => {
+        console.log("✅ [MongoDB] Connected successfully to database:", m.connection.name);
+        return m;
+      })
+      .catch((err) => {
+        console.error("❌ [MongoDB] Connection error:", err instanceof Error ? err.message : err);
+        cached.promise = null;
+        return null;
+      });
+  }
+
+  cached.conn = await cached.promise;
+  return !!cached.conn;
 }
 
 export function isDbConnected(): boolean {
