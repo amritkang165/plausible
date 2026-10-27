@@ -1,6 +1,8 @@
 # Plausible 🎭
 
 > *"Got an excuse? Make it plausible."*
+>
+> video link - 
 
 Plausible is a full-stack platform where users can trade, test, and score excuses. Powered by an AI plausibility scoring engine, community members can submit excuses, browse trending categories, vote, and build a leaderboard of the most believable (or hilarious) excuses.
 
