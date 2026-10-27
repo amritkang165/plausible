@@ -16,6 +16,12 @@ type Excuse = {
   r?: string;
 };
 
+type UserProfile = {
+  id: string;
+  username: string;
+  email: string;
+};
+
 const DEFAULT_TRENDING: Excuse[] = [
   { t: "My cat submitted the expense report. Accounting is reviewing it.", s: 91, cat: "Pets", by: "@nightowl", saves: 412 },
   { t: "The printer ate my homework, then it ate the printer.", s: 78, cat: "School", by: "@brokenbeat", saves: 287 },
@@ -132,7 +138,7 @@ function Ring({ s }: { s: number }) {
   );
 }
 
-function SaveButton({ id, onSave }: { id?: string; onSave?: () => void }) {
+function SaveButton({ id, token, onSave }: { id?: string; token: string | null; onSave?: () => void }) {
   const [saved, setSaved] = useState(false);
 
   const handleSave = async () => {
@@ -140,7 +146,9 @@ function SaveButton({ id, onSave }: { id?: string; onSave?: () => void }) {
     setSaved(true);
     if (id) {
       try {
-        await fetch(`/api/excuses/${id}/save`, { method: "POST" });
+        const headers: Record<string, string> = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        await fetch(`/api/excuses/${id}/save`, { method: "POST", headers });
         if (onSave) onSave();
       } catch (err) {
         console.error("Save error:", err);
@@ -164,12 +172,59 @@ export default function App() {
   const [scrolled, setScrolled] = useState(false);
   const [dbConnected, setDbConnected] = useState<boolean | null>(null);
   const [excuses, setExcuses] = useState<Excuse[]>([]);
+  
+  // Auth state
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem("plausible_token"));
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authLoginInput, setAuthLoginInput] = useState("");
+  const [authUsername, setAuthUsername] = useState("");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+
+  // Submit excuse state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formText, setFormText] = useState("");
   const [formCategory, setFormCategory] = useState("Work");
   const [formAuthor, setFormAuthor] = useState("");
+
   const glow = useRef<HTMLDivElement>(null);
+
+  // Fetch logged in user when token changes
+  useEffect(() => {
+    if (!token) {
+      setCurrentUser(null);
+      return;
+    }
+
+    const fetchMe = async () => {
+      try {
+        const res = await fetch("/api/auth/me", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setCurrentUser({
+            id: data.user._id,
+            username: data.user.username,
+            email: data.user.email,
+          });
+        } else {
+          // Token invalid or expired
+          localStorage.removeItem("plausible_token");
+          setToken(null);
+          setCurrentUser(null);
+        }
+      } catch {
+        // network issue, keep token
+      }
+    };
+    fetchMe();
+  }, [token]);
 
   // Check database connection and fetch initial data
   const loadData = async () => {
@@ -195,7 +250,7 @@ export default function App() {
         }
       }
     } catch {
-      // fallback to default
+      // fallback
     }
     setExcuses(DEFAULT_TRENDING);
   };
@@ -219,19 +274,63 @@ export default function App() {
     };
   }, []);
 
+  const handleAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthLoading(true);
+
+    const endpoint = authMode === "login" ? "/api/auth/login" : "/api/auth/register";
+    const body = authMode === "login"
+      ? { login: authLoginInput, password: authPassword }
+      : { username: authUsername, email: authEmail, password: authPassword };
+
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setAuthError(data.error || "Authentication failed");
+      } else {
+        localStorage.setItem("plausible_token", data.token);
+        setToken(data.token);
+        setCurrentUser(data.user);
+        setIsAuthModalOpen(false);
+        setAuthPassword("");
+        setAuthError("");
+      }
+    } catch {
+      setAuthError("Failed to reach server.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("plausible_token");
+    setToken(null);
+    setCurrentUser(null);
+  };
+
   const handleSubmitExcuse = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formText.trim()) return;
 
     setSubmitting(true);
     try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
       const res = await fetch("/api/excuses", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           text: formText,
           category: formCategory,
-          author: formAuthor || "@anonymous",
+          author: currentUser ? `@${currentUser.username}` : formAuthor || "@anonymous",
         }),
       });
 
@@ -279,7 +378,7 @@ export default function App() {
                 {dbConnected === true
                   ? "MongoDB Connected"
                   : dbConnected === false
-                  ? "MongoDB Offline (.env needed)"
+                  ? "MongoDB Offline"
                   : "Checking DB..."}
               </span>
             </div>
@@ -291,12 +390,42 @@ export default function App() {
             <a href="#rated" className="transition hover:text-white">Leaderboard</a>
           </div>
 
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="glass rounded-full px-4 py-2 text-sm text-white transition hover:bg-white/10"
-          >
-            + Submit Excuse
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="rounded-full bg-white/10 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/20"
+            >
+              + Submit Excuse
+            </button>
+
+            {currentUser ? (
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 rounded-full border border-pink-500/30 bg-pink-500/10 px-3 py-1.5 text-xs font-medium text-pink-300">
+                  <span className="grid h-5 w-5 place-items-center rounded-full bg-pink-500/30 text-[10px] font-bold text-white uppercase">
+                    {currentUser.username[0]}
+                  </span>
+                  @{currentUser.username}
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-400 hover:text-white hover:bg-white/10 transition"
+                >
+                  Logout
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => {
+                  setAuthMode("login");
+                  setAuthError("");
+                  setIsAuthModalOpen(true);
+                }}
+                className="btn-glow glass rounded-full px-4 py-2 text-sm text-white transition hover:bg-white/10"
+              >
+                Sign in
+              </button>
+            )}
+          </div>
         </div>
       </nav>
 
@@ -386,10 +515,11 @@ export default function App() {
                       </span>
                       <SaveButton
                         id={e._id}
+                        token={token}
                         onSave={() => {
                           setExcuses((prev) =>
                             prev.map((item) =>
-                              (item._id && item._id === e._id) ? { ...item, saves: item.saves + 1 } : item
+                              item._id && item._id === e._id ? { ...item, saves: item.saves + 1 } : item
                             )
                           );
                         }}
@@ -498,6 +628,131 @@ export default function App() {
         </footer>
       </div>
 
+      {/* Auth Modal (Sign In / Sign Up) */}
+      {isAuthModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md">
+          <div className="glass card relative w-full max-w-md rounded-3xl border border-white/20 p-8 shadow-2xl">
+            <button
+              onClick={() => setIsAuthModalOpen(false)}
+              className="absolute right-5 top-5 text-2xl text-slate-400 hover:text-white"
+            >
+              ✕
+            </button>
+
+            {/* Tabs */}
+            <div className="flex border-b border-white/10 pb-4 gap-4">
+              <button
+                onClick={() => {
+                  setAuthMode("login");
+                  setAuthError("");
+                }}
+                className={`font-display text-lg font-bold pb-1 transition ${
+                  authMode === "login"
+                    ? "text-white border-b-2 border-pink-500"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                Sign In
+              </button>
+              <button
+                onClick={() => {
+                  setAuthMode("register");
+                  setAuthError("");
+                }}
+                className={`font-display text-lg font-bold pb-1 transition ${
+                  authMode === "register"
+                    ? "text-white border-b-2 border-pink-500"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                Create Account
+              </button>
+            </div>
+
+            {authError && (
+              <div className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+                {authError}
+              </div>
+            )}
+
+            <form onSubmit={handleAuthSubmit} className="mt-6 space-y-4">
+              {authMode === "register" ? (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                      Username
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={authUsername}
+                      onChange={(e) => setAuthUsername(e.target.value)}
+                      placeholder="e.g. nightowl"
+                      className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white placeholder-slate-500 focus:border-pink-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                      Email
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      value={authEmail}
+                      onChange={(e) => setAuthEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white placeholder-slate-500 focus:border-pink-500 focus:outline-none"
+                    />
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                    Email or Username
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={authLoginInput}
+                    onChange={(e) => setAuthLoginInput(e.target.value)}
+                    placeholder="you@example.com or username"
+                    className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white placeholder-slate-500 focus:border-pink-500 focus:outline-none"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                  Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white placeholder-slate-500 focus:border-pink-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={authLoading}
+                  className="btn-glow w-full rounded-xl bg-gradient-to-r from-violet to-hotpink py-3 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {authLoading
+                    ? "Authenticating..."
+                    : authMode === "login"
+                    ? "Sign In"
+                    : "Create Account"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Submit Excuse Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-md">
@@ -510,9 +765,9 @@ export default function App() {
             </button>
             <h3 className="font-display text-2xl font-bold text-white">Submit an Excuse</h3>
             <p className="mt-1 text-sm text-slate-400">
-              {dbConnected
-                ? "This will be stored in your MongoDB Atlas database and AI-scored."
-                : "Note: Connect MongoDB in .env to persist excuses across sessions."}
+              {currentUser
+                ? `Posting as @${currentUser.username} and saving to your MongoDB profile.`
+                : "This will be stored in your MongoDB Atlas database and AI-scored."}
             </p>
 
             <form onSubmit={handleSubmitExcuse} className="mt-6 space-y-4">
@@ -545,13 +800,16 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">Your Handle</label>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">Author</label>
                   <input
                     type="text"
-                    value={formAuthor}
+                    disabled={!!currentUser}
+                    value={currentUser ? `@${currentUser.username}` : formAuthor}
                     onChange={(e) => setFormAuthor(e.target.value)}
                     placeholder="@username"
-                    className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white placeholder-slate-500 focus:border-pink-500 focus:outline-none"
+                    className={`mt-1 w-full rounded-xl border border-white/10 p-3 text-sm text-white placeholder-slate-500 focus:outline-none ${
+                      currentUser ? "bg-white/10 cursor-not-allowed text-pink-300" : "bg-white/5 focus:border-pink-500"
+                    }`}
                   />
                 </div>
               </div>
