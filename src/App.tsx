@@ -14,6 +14,7 @@ type Excuse = {
   saves: number;
   rating?: string;
   r?: string;
+  verdict?: string;
 };
 
 type UserProfile = {
@@ -23,16 +24,16 @@ type UserProfile = {
 };
 
 const DEFAULT_TRENDING: Excuse[] = [
-  { t: "My cat submitted the expense report. Accounting is reviewing it.", s: 91, cat: "Pets", by: "@nightowl", saves: 412 },
-  { t: "The printer ate my homework, then it ate the printer.", s: 78, cat: "School", by: "@brokenbeat", saves: 287 },
-  { t: "I was stuck in a two-hour meeting about meetings. That's how I got here.", s: 84, cat: "Work", by: "@tabsnotspaces", saves: 359 },
+  { t: "My cat submitted the expense report. Accounting is reviewing it.", s: 91, cat: "Pets", by: "@nightowl", saves: 412, verdict: "Corporate Gold" },
+  { t: "The printer ate my homework, then it ate the printer.", s: 78, cat: "School", by: "@brokenbeat", saves: 287, verdict: "High Plausibility" },
+  { t: "I was stuck in a two-hour meeting about meetings. That's how I got here.", s: 84, cat: "Work", by: "@tabsnotspaces", saves: 359, verdict: "Bulletproof Lie" },
 ];
 
 const DEFAULT_RATED: Excuse[] = [
-  { t: "Ring road traffic was a sentient being today.", s: 88, cat: "Travel", r: "4.9", saves: 198 },
-  { t: "My phone hit 1%, so I was emotionally unavailable.", s: 73, cat: "Dating", r: "4.7", saves: 145 },
-  { t: "The gym was closed for emotional reasons.", s: 69, cat: "Health", r: "4.6", saves: 210 },
-  { t: "The Wi-Fi password was the excuse. I was the password.", s: 81, cat: "Tech", r: "4.8", saves: 320 },
+  { t: "Ring road traffic was a sentient being today.", s: 88, cat: "Travel", r: "4.9", saves: 198, verdict: "Corporate Gold" },
+  { t: "My phone hit 1%, so I was emotionally unavailable.", s: 73, cat: "Dating", r: "4.7", saves: 145, verdict: "High Plausibility" },
+  { t: "The gym was closed for emotional reasons.", s: 69, cat: "Health", r: "4.6", saves: 210, verdict: "Believable with Confidence" },
+  { t: "The Wi-Fi password was the excuse. I was the password.", s: 81, cat: "Tech", r: "4.8", saves: 320, verdict: "Bulletproof Lie" },
 ];
 
 const CATEGORIES = [
@@ -46,17 +47,10 @@ const CATEGORIES = [
   { e: "🏠", n: "Family", g: "from-rose-500 to-violet-700" },
 ];
 
-const STATS = [
-  { n: 12480, s: "", l: "Excuses analyzed", d: 0 },
-  { n: 38200, s: "", l: "Members", d: 0 },
-  { n: 74, s: "%", l: "Average plausibility", d: 0 },
-  { n: 4.8, s: "/5", l: "Community rating", d: 1 },
-];
-
 const FEATURES = [
-  { i: "🧠", h: "AI scoring", p: "Every excuse gets a believability, creativity and originality score, so you know exactly where it stands." },
-  { i: "🗳️", h: "Community voting", p: "Members upvote, remix and retire. Good lies get sharper, weak ones quietly disappear." },
-  { i: "🔗", h: "Built to share", p: "Each excuse becomes a card you can save, send or pin to the group chat." },
+  { i: "🧠", h: "AI Believability Scoring", p: "Every excuse is parsed by our NLP model for contextual plausibility, tone consistency, and likelihood of success." },
+  { i: "🗳️", h: "Community Stress-Testing", p: "Real users stress-test and upvote excuses that actually work. Unbelievable excuses quietly sink to the bottom." },
+  { i: "📋", h: "One-Click Quick Copy", p: "Instantly copy formatted excuse cards straight to Slack, iMessage, or your clipboard when timing matters." },
 ];
 
 function Reveal({ children, d = 0, className = "" }: { children: ReactNode; d?: number; className?: string }) {
@@ -138,6 +132,26 @@ function Ring({ s }: { s: number }) {
   );
 }
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      title="Copy excuse"
+      className="rounded-full px-2.5 py-1 text-xs font-medium text-slate-400 hover:text-white hover:bg-white/10 transition"
+    >
+      {copied ? "✓ Copied" : "Copy"}
+    </button>
+  );
+}
+
 function SaveButton({ id, token, onSave }: { id?: string; token: string | null; onSave?: () => void }) {
   const [saved, setSaved] = useState(false);
 
@@ -170,9 +184,19 @@ function SaveButton({ id, token, onSave }: { id?: string; token: string | null; 
 
 export default function App() {
   const [scrolled, setScrolled] = useState(false);
-  const [dbConnected, setDbConnected] = useState<boolean | null>(null);
+  const [networkOnline, setNetworkOnline] = useState<boolean | null>(null);
   const [excuses, setExcuses] = useState<Excuse[]>([]);
-  
+  const [selectedCategory, setSelectedCategory] = useState<string>("All");
+  const [selectedSort, setSelectedSort] = useState<string>("trending");
+
+  // Stats
+  const [platformStats, setPlatformStats] = useState({
+    totalExcuses: 12480,
+    totalUsers: 38200,
+    avgPlausibility: 78,
+    avgRating: "4.8",
+  });
+
   // Auth state
   const [token, setToken] = useState<string | null>(() => localStorage.getItem("plausible_token"));
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
@@ -191,10 +215,11 @@ export default function App() {
   const [formText, setFormText] = useState("");
   const [formCategory, setFormCategory] = useState("Work");
   const [formAuthor, setFormAuthor] = useState("");
+  const [submissionFeedback, setSubmissionFeedback] = useState<string | null>(null);
 
   const glow = useRef<HTMLDivElement>(null);
 
-  // Fetch logged in user when token changes
+  // Hydrate user from token
   useEffect(() => {
     if (!token) {
       setCurrentUser(null);
@@ -214,52 +239,65 @@ export default function App() {
             email: data.user.email,
           });
         } else {
-          // Token invalid or expired
           localStorage.removeItem("plausible_token");
           setToken(null);
           setCurrentUser(null);
         }
       } catch {
-        // network issue, keep token
+        // silent fallback
       }
     };
     fetchMe();
   }, [token]);
 
-  // Check database connection and fetch initial data
-  const loadData = async () => {
+  // Load live excuses and stats
+  const loadData = async (cat = selectedCategory, srt = selectedSort) => {
     try {
       const statusRes = await fetch("/api/status");
       if (statusRes.ok) {
         const data = await statusRes.json();
-        setDbConnected(data.database?.connected ?? false);
+        setNetworkOnline(data.database?.connected ?? true);
       } else {
-        setDbConnected(false);
+        setNetworkOnline(false);
       }
     } catch {
-      setDbConnected(false);
+      setNetworkOnline(false);
     }
 
     try {
-      const excusesRes = await fetch("/api/excuses");
+      const queryParams = new URLSearchParams();
+      if (cat && cat !== "All") queryParams.append("category", cat);
+      if (srt) queryParams.append("sort", srt);
+
+      const excusesRes = await fetch(`/api/excuses?${queryParams.toString()}`);
       if (excusesRes.ok) {
         const items = await excusesRes.json();
         if (Array.isArray(items) && items.length > 0) {
           setExcuses(items);
-          return;
+        } else if (cat === "All") {
+          setExcuses(DEFAULT_TRENDING);
+        } else {
+          setExcuses([]);
         }
       }
     } catch {
-      // fallback
+      setExcuses(DEFAULT_TRENDING);
     }
-    setExcuses(DEFAULT_TRENDING);
+
+    try {
+      const statsRes = await fetch("/api/stats");
+      if (statsRes.ok) {
+        const sData = await statsRes.json();
+        setPlatformStats(sData);
+      }
+    } catch {
+      // default
+    }
   };
 
   useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, 10000);
-    return () => clearInterval(interval);
-  }, []);
+    loadData(selectedCategory, selectedSort);
+  }, [selectedCategory, selectedSort]);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -280,9 +318,10 @@ export default function App() {
     setAuthLoading(true);
 
     const endpoint = authMode === "login" ? "/api/auth/login" : "/api/auth/register";
-    const body = authMode === "login"
-      ? { login: authLoginInput, password: authPassword }
-      : { username: authUsername, email: authEmail, password: authPassword };
+    const body =
+      authMode === "login"
+        ? { login: authLoginInput, password: authPassword }
+        : { username: authUsername, email: authEmail, password: authPassword };
 
     try {
       const res = await fetch(endpoint, {
@@ -303,7 +342,7 @@ export default function App() {
         setAuthError("");
       }
     } catch {
-      setAuthError("Failed to reach server.");
+      setAuthError("Unable to connect to service.");
     } finally {
       setAuthLoading(false);
     }
@@ -320,6 +359,8 @@ export default function App() {
     if (!formText.trim()) return;
 
     setSubmitting(true);
+    setSubmissionFeedback("Analyzing tone and believability heuristics...");
+
     try {
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -336,23 +377,28 @@ export default function App() {
 
       if (res.ok) {
         const newExcuse = await res.json();
-        setExcuses((prev) => [newExcuse, ...prev]);
-        setFormText("");
-        setFormAuthor("");
-        setIsModalOpen(false);
+        setSubmissionFeedback(`AI Assessment: ${newExcuse.score}% Plausible • "${newExcuse.verdict || "Bulletproof"}"`);
+        setTimeout(() => {
+          setExcuses((prev) => [newExcuse, ...prev]);
+          setFormText("");
+          setFormAuthor("");
+          setSubmissionFeedback(null);
+          setIsModalOpen(false);
+        }, 1200);
       } else {
         const err = await res.json();
-        alert(err.error || "Failed to submit excuse");
+        alert(err.error || "Failed to publish excuse");
+        setSubmissionFeedback(null);
       }
-    } catch (err) {
-      alert("Error submitting to server. Make sure the backend and MongoDB are running.");
+    } catch {
+      alert("Network error. Please try again.");
+      setSubmissionFeedback(null);
     } finally {
       setSubmitting(false);
     }
   };
 
-  const trendingList = excuses.length > 0 ? excuses.slice(0, 6) : DEFAULT_TRENDING;
-  const ratedList = DEFAULT_RATED;
+  const activeExcuses = excuses.length > 0 ? excuses : DEFAULT_TRENDING;
 
   return (
     <>
@@ -362,30 +408,29 @@ export default function App() {
       <nav className={`fixed inset-x-0 top-0 z-50 transition-all duration-300 ${scrolled ? "nav-on" : ""}`}>
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-4">
-            <a href="#" className="font-display text-xl font-bold text-white">Plausible</a>
-            {/* MongoDB Connection Status Pill */}
+            <a href="#" className="font-display text-xl font-bold tracking-tight text-white flex items-center gap-2">
+              <span className="text-2xl">🎭</span>
+              <span>Plausible</span>
+            </a>
+            {/* Live Platform Status Pill */}
             <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs">
               <span
                 className={`inline-block h-2 w-2 rounded-full ${
-                  dbConnected === true
+                  networkOnline === true
                     ? "bg-emerald-400 shadow-[0_0_8px_#34d399]"
-                    : dbConnected === false
+                    : networkOnline === false
                     ? "bg-amber-400"
                     : "bg-slate-400 animate-pulse"
                 }`}
               />
-              <span className="text-slate-300">
-                {dbConnected === true
-                  ? "MongoDB Connected"
-                  : dbConnected === false
-                  ? "MongoDB Offline"
-                  : "Checking DB..."}
+              <span className="text-slate-300 font-medium">
+                {networkOnline === true ? "Network Live" : "Syncing..."}
               </span>
             </div>
           </div>
 
           <div className="hidden gap-8 text-sm text-slate-300 md:flex">
-            <a href="#trending" className="transition hover:text-white">Trending</a>
+            <a href="#trending" className="transition hover:text-white">Explore</a>
             <a href="#categories" className="transition hover:text-white">Categories</a>
             <a href="#rated" className="transition hover:text-white">Leaderboard</a>
           </div>
@@ -436,13 +481,17 @@ export default function App() {
           <div className="orb -left-24 top-20 h-96 w-96 bg-violet" />
           <div className="orb right-0 top-1/3 h-80 w-80 bg-electric" style={{ animationDelay: "-5s" }} />
           <div className="orb bottom-0 left-1/3 h-72 w-72 bg-hotpink" style={{ animationDelay: "-9s" }} />
+          
           <div className="relative max-w-4xl text-center">
+            <div className="inline-flex items-center gap-2 rounded-full border border-pink-500/30 bg-pink-500/10 px-4 py-1.5 text-xs font-semibold text-pink-300 mb-6 backdrop-blur-sm">
+              <span>✨ AI-Powered Excuse Scoring Engine</span>
+            </div>
             <h1 className="grad-text font-display text-5xl font-extrabold leading-[1.05] sm:text-7xl">
               Got an excuse? Make it plausible.
             </h1>
             <p className="mx-auto mt-6 max-w-xl text-lg text-slate-400">
-              Trade, test and score excuses with a community that takes creativity seriously. Our AI rates each one for
-              believability, creativity and originality, so the best lies rise to the top.
+              Trade, stress-test, and benchmark excuses with a community that takes believability seriously.
+              Our model scores every story for plausibility, creativity, and tone.
             </p>
             <div className="mt-10 flex flex-wrap justify-center gap-4">
               <a
@@ -455,75 +504,162 @@ export default function App() {
                 onClick={() => setIsModalOpen(true)}
                 className="btn-glow glass rounded-full px-7 py-3.5 font-semibold text-white hover:bg-white/10"
               >
-                Submit Your Own
+                Score Your Excuse
               </button>
             </div>
           </div>
         </section>
 
-        {/* Stats */}
+        {/* Dynamic Platform Stats */}
         <section className="mx-auto max-w-6xl px-6 py-16">
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            {STATS.map((s, i) => (
-              <Reveal key={s.l} d={i * 80}>
-                <div className="glass p-6 text-center">
-                  <div className="font-display text-4xl font-extrabold text-white">
-                    <Counter to={s.n} suffix={s.s} dec={s.d} />
-                  </div>
-                  <div className="mt-2 text-sm text-slate-400">{s.l}</div>
+            <Reveal d={0}>
+              <div className="glass p-6 text-center">
+                <div className="font-display text-4xl font-extrabold text-white">
+                  <Counter to={platformStats.totalExcuses} suffix="+" dec={0} />
                 </div>
-              </Reveal>
-            ))}
+                <div className="mt-2 text-sm text-slate-400">Excuses analyzed</div>
+              </div>
+            </Reveal>
+            <Reveal d={80}>
+              <div className="glass p-6 text-center">
+                <div className="font-display text-4xl font-extrabold text-white">
+                  <Counter to={platformStats.totalUsers} suffix="+" dec={0} />
+                </div>
+                <div className="mt-2 text-sm text-slate-400">Active members</div>
+              </div>
+            </Reveal>
+            <Reveal d={160}>
+              <div className="glass p-6 text-center">
+                <div className="font-display text-4xl font-extrabold text-white">
+                  <Counter to={platformStats.avgPlausibility} suffix="%" dec={0} />
+                </div>
+                <div className="mt-2 text-sm text-slate-400">Average plausibility</div>
+              </div>
+            </Reveal>
+            <Reveal d={240}>
+              <div className="glass p-6 text-center">
+                <div className="font-display text-4xl font-extrabold text-white">
+                  <Counter to={4.8} suffix="/5" dec={1} />
+                </div>
+                <div className="mt-2 text-sm text-slate-400">Community trust rating</div>
+              </div>
+            </Reveal>
           </div>
         </section>
 
-        {/* Trending */}
+        {/* Explore & Category Filter Section */}
         <section id="trending" className="mx-auto max-w-6xl px-6 py-20">
           <Reveal>
-            <div className="flex flex-wrap items-end justify-between gap-4">
+            <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
               <div>
-                <h2 className="font-display text-4xl font-bold text-white">Trending now</h2>
-                <p className="mt-2 text-slate-400">The excuses everyone is quoting this week.</p>
+                <h2 className="font-display text-4xl font-bold text-white">Community Excuses</h2>
+                <p className="mt-2 text-slate-400">Browse live excuses stress-tested by members and rated by AI.</p>
               </div>
+
+              {/* Sort pills */}
+              <div className="flex items-center gap-2 self-start rounded-full border border-white/10 bg-white/5 p-1 text-xs">
+                <button
+                  onClick={() => setSelectedSort("trending")}
+                  className={`rounded-full px-3 py-1.5 transition ${
+                    selectedSort === "trending" ? "bg-white/20 text-white font-semibold" : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  Trending
+                </button>
+                <button
+                  onClick={() => setSelectedSort("top")}
+                  className={`rounded-full px-3 py-1.5 transition ${
+                    selectedSort === "top" ? "bg-white/20 text-white font-semibold" : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  Top Believability
+                </button>
+                <button
+                  onClick={() => setSelectedSort("saves")}
+                  className={`rounded-full px-3 py-1.5 transition ${
+                    selectedSort === "saves" ? "bg-white/20 text-white font-semibold" : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  Most Saved
+                </button>
+              </div>
+            </div>
+
+            {/* Category Filter Pills */}
+            <div className="mt-8 flex flex-wrap gap-2 pb-2">
               <button
-                onClick={() => setIsModalOpen(true)}
-                className="rounded-full bg-white/10 px-4 py-2 text-xs font-semibold text-white hover:bg-white/20"
+                onClick={() => setSelectedCategory("All")}
+                className={`rounded-full px-4 py-1.5 text-xs font-medium transition ${
+                  selectedCategory === "All"
+                    ? "bg-gradient-to-r from-violet to-hotpink text-white font-semibold shadow-[0_0_15px_rgba(236,72,153,.4)]"
+                    : "border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"
+                }`}
               >
-                + New Excuse
+                All Categories
               </button>
+              {CATEGORIES.map((cat) => (
+                <button
+                  key={cat.n}
+                  onClick={() => setSelectedCategory(cat.n)}
+                  className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition flex items-center gap-1.5 ${
+                    selectedCategory === cat.n
+                      ? "bg-gradient-to-r from-violet to-hotpink text-white font-semibold shadow-[0_0_15px_rgba(236,72,153,.4)]"
+                      : "border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"
+                  }`}
+                >
+                  <span>{cat.e}</span>
+                  <span>{cat.n}</span>
+                </button>
+              ))}
             </div>
           </Reveal>
-          <div className="mt-10 grid gap-6 md:grid-cols-3">
-            {trendingList.map((e, i) => {
+
+          {/* Cards Grid */}
+          <div className="mt-8 grid gap-6 md:grid-cols-3">
+            {activeExcuses.map((e, i) => {
               const text = e.text || e.t || "";
-              const score = e.score ?? e.s ?? 80;
+              const score = e.score ?? e.s ?? 82;
               const category = e.category || e.cat || "General";
               const author = e.author || e.by || "@anonymous";
+              const verdict = e.verdict || (score >= 88 ? "Bulletproof Lie" : score >= 80 ? "Corporate Gold" : "High Plausibility");
+
               return (
-                <Reveal key={e._id || `${text}-${i}`} d={i * 80}>
+                <Reveal key={e._id || `${text}-${i}`} d={i * 60}>
                   <Card className="flex h-full flex-col justify-between">
                     <div>
                       <div className="flex items-start justify-between gap-4">
-                        <span className="rounded-full bg-white/5 px-3 py-1 text-xs text-electric">{category}</span>
+                        <div className="flex flex-col gap-1">
+                          <span className="w-fit rounded-full bg-white/5 px-2.5 py-0.5 text-[11px] font-semibold text-electric">
+                            {category}
+                          </span>
+                          <span className="text-[10px] uppercase tracking-wider text-pink-300 font-bold">
+                            {verdict}
+                          </span>
+                        </div>
                         <Ring s={score} />
                       </div>
-                      <p className="mt-5 text-lg font-medium leading-snug text-white">{text}</p>
+                      <p className="mt-4 text-base font-medium leading-relaxed text-slate-100">“{text}”</p>
                     </div>
-                    <div className="mt-6 flex items-center justify-between text-sm text-slate-400">
+
+                    <div className="mt-6 flex items-center justify-between border-t border-white/5 pt-4 text-xs text-slate-400">
                       <span>
                         {author} · {e.saves} saves
                       </span>
-                      <SaveButton
-                        id={e._id}
-                        token={token}
-                        onSave={() => {
-                          setExcuses((prev) =>
-                            prev.map((item) =>
-                              item._id && item._id === e._id ? { ...item, saves: item.saves + 1 } : item
-                            )
-                          );
-                        }}
-                      />
+                      <div className="flex items-center gap-2">
+                        <CopyButton text={text} />
+                        <SaveButton
+                          id={e._id}
+                          token={token}
+                          onSave={() => {
+                            setExcuses((prev) =>
+                              prev.map((item) =>
+                                item._id && item._id === e._id ? { ...item, saves: item.saves + 1 } : item
+                              )
+                            );
+                          }}
+                        />
+                      </div>
                     </div>
                   </Card>
                 </Reveal>
@@ -535,7 +671,7 @@ export default function App() {
         {/* Features */}
         <section className="mx-auto max-w-6xl px-6 py-20">
           <Reveal>
-            <h2 className="font-display text-4xl font-bold text-white">Why Plausible?</h2>
+            <h2 className="font-display text-4xl font-bold text-white">Why Plausible Works</h2>
           </Reveal>
           <div className="mt-10 grid gap-6 md:grid-cols-3">
             {FEATURES.map((f, i) => (
@@ -552,21 +688,27 @@ export default function App() {
           </div>
         </section>
 
-        {/* Highest rated */}
+        {/* Leaderboard */}
         <section id="rated" className="mx-auto max-w-6xl px-6 py-20">
           <Reveal>
-            <h2 className="font-display text-4xl font-bold text-white">Highest rated</h2>
+            <h2 className="font-display text-4xl font-bold text-white">All-Time Hall of Fame</h2>
+            <p className="mt-2 text-slate-400">Excuses with the highest verified believability ratios.</p>
           </Reveal>
           <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {ratedList.map((e, i) => (
+            {DEFAULT_RATED.map((e, i) => (
               <Reveal key={e.t || i} d={i * 80}>
-                <Card className="p-5">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-electric">{e.cat}</span>
-                    <span className="text-amber-300">★ {e.r}</span>
+                <Card className="p-5 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-electric font-medium">{e.cat}</span>
+                      <span className="text-amber-300 font-semibold">★ {e.r}</span>
+                    </div>
+                    <p className="mt-3 text-sm font-medium leading-snug text-white">“{e.t}”</p>
                   </div>
-                  <p className="mt-3 text-sm font-medium leading-snug text-white">{e.t}</p>
-                  <div className="mt-4 text-xs text-slate-400">Plausibility {e.s}%</div>
+                  <div className="mt-4 flex items-center justify-between text-xs text-slate-400 border-t border-white/5 pt-3">
+                    <span>{e.s}% Believable</span>
+                    <CopyButton text={e.t || ""} />
+                  </div>
                 </Card>
               </Reveal>
             ))}
@@ -576,18 +718,22 @@ export default function App() {
         {/* Categories */}
         <section id="categories" className="mx-auto max-w-6xl px-6 py-20">
           <Reveal>
-            <h2 className="font-display text-4xl font-bold text-white">Browse categories</h2>
+            <h2 className="font-display text-4xl font-bold text-white">Browse by Scenario</h2>
           </Reveal>
           <div className="mt-10 grid grid-cols-2 gap-4 md:grid-cols-4">
             {CATEGORIES.map((c, i) => (
               <Reveal key={c.n} d={i * 80}>
-                <a
-                  href="#trending"
-                  className={`group block rounded-2xl bg-gradient-to-br ${c.g} p-6 transition duration-300 hover:-translate-y-1 hover:shadow-[0_0_40px_-5px_rgba(139,92,246,.6)]`}
+                <button
+                  onClick={() => {
+                    setSelectedCategory(c.n);
+                    const el = document.getElementById("trending");
+                    if (el) el.scrollIntoView({ behavior: "smooth" });
+                  }}
+                  className={`w-full text-left group block rounded-2xl bg-gradient-to-br ${c.g} p-6 transition duration-300 hover:-translate-y-1 hover:shadow-[0_0_40px_-5px_rgba(139,92,246,.6)]`}
                 >
                   <div className="text-4xl transition duration-300 group-hover:scale-110">{c.e}</div>
                   <div className="mt-6 font-display text-lg font-semibold text-white">{c.n}</div>
-                </a>
+                </button>
               </Reveal>
             ))}
           </div>
@@ -603,20 +749,20 @@ export default function App() {
                 Your next excuse deserves an audience.
               </h2>
               <p className="relative mx-auto mt-5 max-w-lg text-slate-300">
-                Submit it, get scored by the AI, and let the community decide how far it goes.
+                Submit your excuse, let our AI rate its believability, and see how it ranks against the community.
               </p>
               <div className="relative mt-10 flex flex-wrap justify-center gap-4">
                 <button
                   onClick={() => setIsModalOpen(true)}
                   className="btn-glow rounded-full bg-white px-7 py-3.5 font-semibold text-slate-900 hover:-translate-y-0.5"
                 >
-                  Start submitting
+                  Score an Excuse
                 </button>
                 <a
-                  href="#rated"
+                  href="#trending"
                   className="btn-glow glass rounded-full px-7 py-3.5 font-semibold text-white hover:bg-white/10"
                 >
-                  Browse the leaderboard
+                  Browse Top Excuses
                 </a>
               </div>
             </div>
@@ -753,26 +899,41 @@ export default function App() {
         </div>
       )}
 
-      {/* Submit Excuse Modal */}
+      {/* Realistic Submit Excuse Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-md">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md">
           <div className="glass card relative w-full max-w-lg rounded-3xl border border-white/20 p-8 shadow-2xl">
             <button
-              onClick={() => setIsModalOpen(false)}
+              onClick={() => {
+                setIsModalOpen(false);
+                setSubmissionFeedback(null);
+              }}
               className="absolute right-5 top-5 text-2xl text-slate-400 hover:text-white"
             >
               ✕
             </button>
-            <h3 className="font-display text-2xl font-bold text-white">Submit an Excuse</h3>
+            <h3 className="font-display text-2xl font-bold text-white flex items-center gap-2">
+              <span>🧠</span>
+              <span>Score & Publish Excuse</span>
+            </h3>
             <p className="mt-1 text-sm text-slate-400">
               {currentUser
-                ? `Posting as @${currentUser.username} and saving to your MongoDB profile.`
-                : "This will be stored in your MongoDB Atlas database and AI-scored."}
+                ? `Publishing to the community feed as @${currentUser.username}.`
+                : "Our AI model will analyze your excuse for believability and tone."}
             </p>
+
+            {submissionFeedback && (
+              <div className="mt-4 rounded-xl border border-pink-500/40 bg-pink-500/10 p-3 text-xs font-medium text-pink-300 flex items-center gap-2 animate-pulse">
+                <span>⚡</span>
+                <span>{submissionFeedback}</span>
+              </div>
+            )}
 
             <form onSubmit={handleSubmitExcuse} className="mt-6 space-y-4">
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">Excuse</label>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                  Excuse Story / Scenario
+                </label>
                 <textarea
                   required
                   rows={3}
@@ -785,7 +946,9 @@ export default function App() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">Category</label>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                    Category Context
+                  </label>
                   <select
                     value={formCategory}
                     onChange={(e) => setFormCategory(e.target.value)}
@@ -800,15 +963,17 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">Author</label>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                    Author Credit
+                  </label>
                   <input
                     type="text"
                     disabled={!!currentUser}
                     value={currentUser ? `@${currentUser.username}` : formAuthor}
                     onChange={(e) => setFormAuthor(e.target.value)}
-                    placeholder="@username"
+                    placeholder="@yourhandle"
                     className={`mt-1 w-full rounded-xl border border-white/10 p-3 text-sm text-white placeholder-slate-500 focus:outline-none ${
-                      currentUser ? "bg-white/10 cursor-not-allowed text-pink-300" : "bg-white/5 focus:border-pink-500"
+                      currentUser ? "bg-white/10 cursor-not-allowed text-pink-300 font-semibold" : "bg-white/5 focus:border-pink-500"
                     }`}
                   />
                 </div>
@@ -825,9 +990,9 @@ export default function App() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="btn-glow rounded-full bg-gradient-to-r from-violet to-hotpink px-6 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                  className="btn-glow rounded-full bg-gradient-to-r from-violet to-hotpink px-7 py-2.5 text-sm font-semibold text-white disabled:opacity-50 flex items-center gap-2"
                 >
-                  {submitting ? "Scoring..." : "Submit to MongoDB"}
+                  {submitting ? "Evaluating..." : "Analyze & Publish"}
                 </button>
               </div>
             </form>

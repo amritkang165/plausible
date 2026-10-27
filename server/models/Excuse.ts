@@ -7,6 +7,9 @@ export interface IExcuse extends Document {
   author: string;
   saves: number;
   rating?: string;
+  verdict?: string;
+  creativity?: number;
+  originality?: number;
   userId?: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -20,6 +23,9 @@ const ExcuseSchema: Schema = new Schema(
     author: { type: String, required: true, default: "Anonymous" },
     saves: { type: Number, default: 0 },
     rating: { type: String, default: "4.5" },
+    verdict: { type: String, default: "Plausible" },
+    creativity: { type: Number, default: 80 },
+    originality: { type: Number, default: 75 },
     userId: { type: Schema.Types.ObjectId, ref: "User" },
   },
   { timestamps: true }
