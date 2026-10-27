@@ -1,6 +1,6 @@
-import app from "../server/app";
-import { connectDB } from "../server/db";
-import { seedInitialData } from "../server/seed";
+import app from "./app";
+import { connectDB } from "./db";
+import { seedInitialData } from "./seed";
 
 let isSeeded = false;
 

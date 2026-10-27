@@ -7,7 +7,7 @@
     "dev": "concurrently -n \"api,app\" -c \"magenta,cyan\" \"npm run server\" \"vite\"",
     "dev:client": "vite",
     "server": "tsx watch server/index.ts",
-    "build:server": "esbuild api/server.ts --bundle --platform=node --target=node20 --format=esm --outfile=api/index.js --external:mongoose --external:bcryptjs",
+    "build:server": "esbuild server/serverless.ts --bundle --platform=node --target=node20 --format=esm --packages=external --outfile=api/index.js",
     "build": "tsc -b && vite build && npm run build:server",
     "preview": "vite preview"
   },
