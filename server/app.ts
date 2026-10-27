@@ -3,7 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { isDbConnected } from "./db";
+import { isDbConnected, lastDbError } from "./db";
 import { Excuse } from "./models/Excuse";
 import { User } from "./models/User";
 import { requireAuth, optionalAuth, AuthenticatedRequest } from "./middleware/auth";
@@ -19,11 +19,14 @@ app.use(express.json());
 // API health and DB connection status
 app.get("/api/status", (_req, res) => {
   const connected = isDbConnected();
+  const hasUri = !!process.env.MONGODB_URI;
   res.json({
     status: "ok",
+    hasUri,
+    lastError: lastDbError,
     database: {
       connected,
-      message: connected ? "Network live" : "Connecting to database...",
+      message: connected ? "Network live" : hasUri ? "Connecting to database..." : "MONGODB_URI environment variable missing on Vercel",
     },
   });
 });

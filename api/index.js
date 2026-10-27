@@ -13,10 +13,12 @@ var cached = global.mongooseCache || { conn: null, promise: null };
 if (!global.mongooseCache) {
   global.mongooseCache = cached;
 }
+var lastDbError = null;
 async function connectDB() {
   const uri = process.env.MONGODB_URI;
   if (!uri || uri.includes("<username>") || uri.includes("<password>")) {
-    console.warn("\u26A0\uFE0F  [MongoDB] No valid MONGODB_URI found in environment variables.");
+    lastDbError = "Missing or invalid MONGODB_URI in environment variables.";
+    console.warn("\u26A0\uFE0F  [MongoDB] " + lastDbError);
     return false;
   }
   if (cached.conn && mongoose.connection.readyState === 1) {
@@ -28,15 +30,17 @@ async function connectDB() {
       serverSelectionTimeoutMS: 5e3
     }).then((m) => {
       console.log("\u2705 [MongoDB] Connected successfully to database:", m.connection.name);
+      lastDbError = null;
       return m;
     }).catch((err) => {
-      console.error("\u274C [MongoDB] Connection error:", err instanceof Error ? err.message : err);
+      lastDbError = err instanceof Error ? err.message : String(err);
+      console.error("\u274C [MongoDB] Connection error:", lastDbError);
       cached.promise = null;
       return null;
     });
   }
   cached.conn = await cached.promise;
-  return !!cached.conn;
+  return !!cached.conn && mongoose.connection.readyState === 1;
 }
 function isDbConnected() {
   return mongoose.connection.readyState === 1;
@@ -134,11 +138,14 @@ app.use(cors());
 app.use(express.json());
 app.get("/api/status", (_req, res) => {
   const connected = isDbConnected();
+  const hasUri = !!process.env.MONGODB_URI;
   res.json({
     status: "ok",
+    hasUri,
+    lastError: lastDbError,
     database: {
       connected,
-      message: connected ? "Network live" : "Connecting to database..."
+      message: connected ? "Network live" : hasUri ? "Connecting to database..." : "MONGODB_URI environment variable missing on Vercel"
     }
   });
 });

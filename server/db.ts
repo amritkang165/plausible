@@ -18,11 +18,14 @@ if (!global.mongooseCache) {
   global.mongooseCache = cached;
 }
 
+export let lastDbError: string | null = null;
+
 export async function connectDB(): Promise<boolean> {
   const uri = process.env.MONGODB_URI;
 
   if (!uri || uri.includes("<username>") || uri.includes("<password>")) {
-    console.warn("⚠️  [MongoDB] No valid MONGODB_URI found in environment variables.");
+    lastDbError = "Missing or invalid MONGODB_URI in environment variables.";
+    console.warn("⚠️  [MongoDB] " + lastDbError);
     return false;
   }
 
@@ -38,17 +41,19 @@ export async function connectDB(): Promise<boolean> {
       })
       .then((m) => {
         console.log("✅ [MongoDB] Connected successfully to database:", m.connection.name);
+        lastDbError = null;
         return m;
       })
       .catch((err) => {
-        console.error("❌ [MongoDB] Connection error:", err instanceof Error ? err.message : err);
+        lastDbError = err instanceof Error ? err.message : String(err);
+        console.error("❌ [MongoDB] Connection error:", lastDbError);
         cached.promise = null;
         return null;
       });
   }
 
   cached.conn = await cached.promise;
-  return !!cached.conn;
+  return !!cached.conn && mongoose.connection.readyState === 1;
 }
 
 export function isDbConnected(): boolean {
