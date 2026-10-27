@@ -1,0 +1,132 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-void font-sans text-slate-200 antialiased;
+  }
+}
+
+@layer components {
+  .grad-text {
+    background: linear-gradient(100deg, #8b5cf6, #ec4899 35%, #06b6d4 70%, #8b5cf6);
+    background-size: 250% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: shift 7s linear infinite;
+  }
+  .glass {
+    @apply rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl;
+  }
+  .nav-on {
+    @apply border-b border-white/10 bg-void/60 backdrop-blur-xl;
+  }
+  .grid-bg {
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse at center, #000 25%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse at center, #000 25%, transparent 75%);
+    animation: drift 18s linear infinite;
+  }
+  .orb {
+    @apply absolute rounded-full opacity-50 blur-3xl pointer-events-none;
+    animation: float 14s ease-in-out infinite;
+  }
+  .reveal {
+    opacity: 0;
+    transform: translateY(28px);
+    transition:
+      opacity 0.7s ease,
+      transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+    transition-delay: var(--d, 0ms);
+  }
+  .reveal.in {
+    opacity: 1;
+    transform: none;
+  }
+  .card {
+    @apply relative transition duration-300;
+  }
+  .card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 20px 60px -20px rgba(139, 92, 246, 0.45);
+  }
+  .card-border::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: radial-gradient(
+      260px circle at var(--mx, 50%) var(--my, 50%),
+      #8b5cf6,
+      #06b6d4 45%,
+      transparent 75%
+    );
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+  }
+  .card-border:hover::before {
+    opacity: 1;
+  }
+  .btn-glow {
+    @apply transition duration-300;
+  }
+  .btn-glow:hover {
+    box-shadow: 0 0 30px rgba(139, 92, 246, 0.6), 0 0 60px rgba(236, 72, 153, 0.3);
+  }
+  .cursor-glow {
+    @apply pointer-events-none fixed left-0 top-0 h-[460px] w-[460px] rounded-full;
+    background: radial-gradient(
+      circle,
+      rgba(139, 92, 246, 0.22),
+      rgba(6, 182, 212, 0.08) 40%,
+      transparent 65%
+    );
+    will-change: transform;
+  }
+}
+
+@keyframes shift {
+  to {
+    background-position: 250% center;
+  }
+}
+@keyframes float {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(40px, -30px) scale(1.08);
+  }
+}
+@keyframes drift {
+  to {
+    background-position: 56px 56px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  .reveal {
+    opacity: 1;
+    transform: none;
+  }
+}
