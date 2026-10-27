@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, MouseEvent, ReactNode } from "react";
 
+type Page = "home" | "category" | "new" | "leaderboard";
+
 type Excuse = {
   _id?: string;
   text?: string;
@@ -15,6 +17,7 @@ type Excuse = {
   rating?: string;
   r?: string;
   verdict?: string;
+  createdAt?: string;
 };
 
 type UserProfile = {
@@ -22,6 +25,17 @@ type UserProfile = {
   username: string;
   email: string;
 };
+
+const CATEGORIES = [
+  { e: "💼", n: "Work", g: "from-violet-600 to-indigo-700", desc: "Corporate-tested alibis for missed deadlines, meeting skips, and Friday afternoon disappearances." },
+  { e: "🎒", n: "School", g: "from-pink-600 to-rose-700", desc: "Believable homework, late arrival, and exam deferral stories vetted for maximum plausibility." },
+  { e: "💘", n: "Dating", g: "from-fuchsia-600 to-pink-700", desc: "Graceful rainchecks and low-friction exits when you just want to stay in your sweatpants." },
+  { e: "🐾", n: "Pets", g: "from-amber-500 to-orange-600", desc: "Blame it on your furry companions with straight-faced, unassailable believability." },
+  { e: "✈️", n: "Travel", g: "from-cyan-600 to-blue-700", desc: "Sentient traffic, transit reroutes, and flight anomaly narratives that no one questions." },
+  { e: "🩺", n: "Health", g: "from-emerald-500 to-teal-700", desc: "Subtle wellness alibis and uncontested medical appointments." },
+  { e: "💻", n: "Tech", g: "from-indigo-500 to-cyan-600", desc: "Rogue OS updates, Wi-Fi outages, and catastrophic cloud synching failures." },
+  { e: "🏠", n: "Family", g: "from-rose-500 to-violet-700", desc: "Ironclad domestic obligations and sudden familial emergencies that shut down any debate." },
+];
 
 const DEFAULT_TRENDING: Excuse[] = [
   { t: "My cat submitted the expense report. Accounting is reviewing it.", s: 91, cat: "Pets", by: "@nightowl", saves: 412, verdict: "Corporate Gold" },
@@ -34,17 +48,6 @@ const DEFAULT_RATED: Excuse[] = [
   { t: "My phone hit 1%, so I was emotionally unavailable.", s: 73, cat: "Dating", r: "4.7", saves: 145, verdict: "High Plausibility" },
   { t: "The gym was closed for emotional reasons.", s: 69, cat: "Health", r: "4.6", saves: 210, verdict: "Believable with Confidence" },
   { t: "The Wi-Fi password was the excuse. I was the password.", s: 81, cat: "Tech", r: "4.8", saves: 320, verdict: "Bulletproof Lie" },
-];
-
-const CATEGORIES = [
-  { e: "💼", n: "Work", g: "from-violet-600 to-indigo-700" },
-  { e: "🎒", n: "School", g: "from-pink-600 to-rose-700" },
-  { e: "💘", n: "Dating", g: "from-fuchsia-600 to-pink-700" },
-  { e: "🐾", n: "Pets", g: "from-amber-500 to-orange-600" },
-  { e: "✈️", n: "Travel", g: "from-cyan-600 to-blue-700" },
-  { e: "🩺", n: "Health", g: "from-emerald-500 to-teal-700" },
-  { e: "💻", n: "Tech", g: "from-indigo-500 to-cyan-600" },
-  { e: "🏠", n: "Family", g: "from-rose-500 to-violet-700" },
 ];
 
 const FEATURES = [
@@ -185,11 +188,16 @@ function SaveButton({ id, token, onSave }: { id?: string; token: string | null; 
 export default function App() {
   const [scrolled, setScrolled] = useState(false);
   const [networkOnline, setNetworkOnline] = useState<boolean | null>(null);
-  const [excuses, setExcuses] = useState<Excuse[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<string>("All");
-  const [selectedSort, setSelectedSort] = useState<string>("trending");
+  
+  // Page Navigation State: "home" | "category" | "new" | "leaderboard"
+  const [currentPage, setCurrentPage] = useState<Page>("home");
+  const [activeCategory, setActiveCategory] = useState<string>("Work");
 
-  // Stats
+  const [excuses, setExcuses] = useState<Excuse[]>([]);
+  const [categoryExcuses, setCategoryExcuses] = useState<Excuse[]>([]);
+  const [newExcuses, setNewExcuses] = useState<Excuse[]>([]);
+
+  // Platform stats
   const [platformStats, setPlatformStats] = useState({
     totalExcuses: 12480,
     totalUsers: 38200,
@@ -219,7 +227,7 @@ export default function App() {
 
   const glow = useRef<HTMLDivElement>(null);
 
-  // Hydrate user from token
+  // Check health and hydrate user
   useEffect(() => {
     if (!token) {
       setCurrentUser(null);
@@ -244,60 +252,85 @@ export default function App() {
           setCurrentUser(null);
         }
       } catch {
-        // silent fallback
+        // silent
       }
     };
     fetchMe();
   }, [token]);
 
-  // Load live excuses and stats
-  const loadData = async (cat = selectedCategory, srt = selectedSort) => {
-    try {
-      const statusRes = await fetch("/api/status");
-      if (statusRes.ok) {
-        const data = await statusRes.json();
-        setNetworkOnline(data.database?.connected ?? true);
-      } else {
+  // Load status and home excuses
+  useEffect(() => {
+    const fetchHomeData = async () => {
+      try {
+        const statusRes = await fetch("/api/status");
+        if (statusRes.ok) {
+          const data = await statusRes.json();
+          setNetworkOnline(data.database?.connected ?? true);
+        }
+      } catch {
         setNetworkOnline(false);
       }
-    } catch {
-      setNetworkOnline(false);
-    }
 
-    try {
-      const queryParams = new URLSearchParams();
-      if (cat && cat !== "All") queryParams.append("category", cat);
-      if (srt) queryParams.append("sort", srt);
-
-      const excusesRes = await fetch(`/api/excuses?${queryParams.toString()}`);
-      if (excusesRes.ok) {
-        const items = await excusesRes.json();
-        if (Array.isArray(items) && items.length > 0) {
-          setExcuses(items);
-        } else if (cat === "All") {
-          setExcuses(DEFAULT_TRENDING);
-        } else {
-          setExcuses([]);
+      try {
+        const excusesRes = await fetch("/api/excuses?sort=trending");
+        if (excusesRes.ok) {
+          const items = await excusesRes.json();
+          if (Array.isArray(items) && items.length > 0) setExcuses(items);
         }
+      } catch {
+        setExcuses(DEFAULT_TRENDING);
       }
-    } catch {
-      setExcuses(DEFAULT_TRENDING);
-    }
 
-    try {
-      const statsRes = await fetch("/api/stats");
-      if (statsRes.ok) {
-        const sData = await statsRes.json();
-        setPlatformStats(sData);
+      try {
+        const statsRes = await fetch("/api/stats");
+        if (statsRes.ok) {
+          const sData = await statsRes.json();
+          setPlatformStats(sData);
+        }
+      } catch {
+        // default
       }
-    } catch {
-      // default
-    }
-  };
+    };
+    fetchHomeData();
+  }, []);
 
+  // Fetch category-specific excuses when category page is active
   useEffect(() => {
-    loadData(selectedCategory, selectedSort);
-  }, [selectedCategory, selectedSort]);
+    if (currentPage === "category") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      const fetchCategoryData = async () => {
+        try {
+          const res = await fetch(`/api/excuses?category=${encodeURIComponent(activeCategory)}`);
+          if (res.ok) {
+            const data = await res.json();
+            setCategoryExcuses(data);
+          }
+        } catch {
+          setCategoryExcuses([]);
+        }
+      };
+      fetchCategoryData();
+    }
+  }, [currentPage, activeCategory]);
+
+  // Fetch newest excuses when "new" page is active
+  useEffect(() => {
+    if (currentPage === "new") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      const fetchNewest = async () => {
+        try {
+          const res = await fetch("/api/excuses?sort=createdAt");
+          if (res.ok) {
+            const data = await res.json();
+            setNewExcuses(data);
+          }
+        } catch {
+          setNewExcuses([]);
+        }
+      };
+      fetchNewest();
+    }
+  }, [currentPage]);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -380,6 +413,10 @@ export default function App() {
         setSubmissionFeedback(`AI Assessment: ${newExcuse.score}% Plausible • "${newExcuse.verdict || "Bulletproof"}"`);
         setTimeout(() => {
           setExcuses((prev) => [newExcuse, ...prev]);
+          if (newExcuse.category === activeCategory) {
+            setCategoryExcuses((prev) => [newExcuse, ...prev]);
+          }
+          setNewExcuses((prev) => [newExcuse, ...prev]);
           setFormText("");
           setFormAuthor("");
           setSubmissionFeedback(null);
@@ -398,7 +435,7 @@ export default function App() {
     }
   };
 
-  const activeExcuses = excuses.length > 0 ? excuses : DEFAULT_TRENDING;
+  const activeCategoryMeta = CATEGORIES.find((c) => c.n === activeCategory) || CATEGORIES[0];
 
   return (
     <>
@@ -408,11 +445,13 @@ export default function App() {
       <nav className={`fixed inset-x-0 top-0 z-50 transition-all duration-300 ${scrolled ? "nav-on" : ""}`}>
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-4">
-            <a href="#" className="font-display text-xl font-bold tracking-tight text-white flex items-center gap-2">
+            <button
+              onClick={() => setCurrentPage("home")}
+              className="font-display text-xl font-bold tracking-tight text-white flex items-center gap-2 hover:opacity-90 transition"
+            >
               <span className="text-2xl">🎭</span>
               <span>Plausible</span>
-            </a>
-            {/* Live Platform Status Pill */}
+            </button>
             <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs">
               <span
                 className={`inline-block h-2 w-2 rounded-full ${
@@ -429,15 +468,51 @@ export default function App() {
             </div>
           </div>
 
-          <div className="hidden gap-8 text-sm text-slate-300 md:flex">
-            <a href="#trending" className="transition hover:text-white">Explore</a>
-            <a href="#categories" className="transition hover:text-white">Categories</a>
-            <a href="#rated" className="transition hover:text-white">Leaderboard</a>
+          {/* Page Switcher */}
+          <div className="hidden gap-2 rounded-full border border-white/10 bg-white/5 p-1 text-xs md:flex">
+            <button
+              onClick={() => setCurrentPage("home")}
+              className={`rounded-full px-4 py-1.5 transition ${
+                currentPage === "home" ? "bg-white/20 text-white font-semibold" : "text-slate-400 hover:text-white"
+              }`}
+            >
+              Trending
+            </button>
+            <button
+              onClick={() => setCurrentPage("new")}
+              className={`rounded-full px-4 py-1.5 transition ${
+                currentPage === "new" ? "bg-white/20 text-white font-semibold" : "text-slate-400 hover:text-white"
+              }`}
+            >
+              ✨ New Feed
+            </button>
+            <button
+              onClick={() => {
+                setActiveCategory("Work");
+                setCurrentPage("category");
+              }}
+              className={`rounded-full px-4 py-1.5 transition ${
+                currentPage === "category" ? "bg-white/20 text-white font-semibold" : "text-slate-400 hover:text-white"
+              }`}
+            >
+              Categories
+            </button>
+            <button
+              onClick={() => setCurrentPage("leaderboard")}
+              className={`rounded-full px-4 py-1.5 transition ${
+                currentPage === "leaderboard" ? "bg-white/20 text-white font-semibold" : "text-slate-400 hover:text-white"
+              }`}
+            >
+              Leaderboard
+            </button>
           </div>
 
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setIsModalOpen(true)}
+              onClick={() => {
+                setFormCategory(currentPage === "category" ? activeCategory : "Work");
+                setIsModalOpen(true);
+              }}
               className="rounded-full bg-white/10 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/20"
             >
               + Submit Excuse
@@ -474,137 +549,60 @@ export default function App() {
         </div>
       </nav>
 
-      <div className="relative z-10">
-        {/* Hero */}
-        <section className="relative flex min-h-screen items-center justify-center overflow-hidden px-6 pt-24">
-          <div className="grid-bg absolute inset-0" />
-          <div className="orb -left-24 top-20 h-96 w-96 bg-violet" />
-          <div className="orb right-0 top-1/3 h-80 w-80 bg-electric" style={{ animationDelay: "-5s" }} />
-          <div className="orb bottom-0 left-1/3 h-72 w-72 bg-hotpink" style={{ animationDelay: "-9s" }} />
-          
-          <div className="relative max-w-4xl text-center">
-            <div className="inline-flex items-center gap-2 rounded-full border border-pink-500/30 bg-pink-500/10 px-4 py-1.5 text-xs font-semibold text-pink-300 mb-6 backdrop-blur-sm">
-              <span>✨ AI-Powered Excuse Scoring Engine</span>
-            </div>
-            <h1 className="grad-text font-display text-5xl font-extrabold leading-[1.05] sm:text-7xl">
-              Got an excuse? Make it plausible.
-            </h1>
-            <p className="mx-auto mt-6 max-w-xl text-lg text-slate-400">
-              Trade, stress-test, and benchmark excuses with a community that takes believability seriously.
-              Our model scores every story for plausibility, creativity, and tone.
-            </p>
-            <div className="mt-10 flex flex-wrap justify-center gap-4">
-              <a
-                href="#trending"
-                className="btn-glow rounded-full bg-gradient-to-r from-violet to-hotpink px-7 py-3.5 font-semibold text-white hover:-translate-y-0.5"
-              >
-                Find an Excuse
-              </a>
+      <div className="relative z-10 pt-20">
+
+        {/* ================= VIEW 1: DEDICATED CATEGORY PAGE ================= */}
+        {currentPage === "category" && (
+          <main className="mx-auto max-w-6xl px-6 py-10 min-h-screen">
+            {/* Header & Back Button */}
+            <div className="flex items-center justify-between">
               <button
-                onClick={() => setIsModalOpen(true)}
-                className="btn-glow glass rounded-full px-7 py-3.5 font-semibold text-white hover:bg-white/10"
+                onClick={() => setCurrentPage("home")}
+                className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/10 transition"
               >
-                Score Your Excuse
+                ← Back to Home
+              </button>
+              <button
+                onClick={() => {
+                  setFormCategory(activeCategory);
+                  setIsModalOpen(true);
+                }}
+                className="rounded-full bg-gradient-to-r from-violet to-hotpink px-5 py-2 text-xs font-semibold text-white shadow-lg transition hover:opacity-90"
+              >
+                + Post {activeCategory} Excuse
               </button>
             </div>
-          </div>
-        </section>
 
-        {/* Dynamic Platform Stats */}
-        <section className="mx-auto max-w-6xl px-6 py-16">
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            <Reveal d={0}>
-              <div className="glass p-6 text-center">
-                <div className="font-display text-4xl font-extrabold text-white">
-                  <Counter to={platformStats.totalExcuses} suffix="+" dec={0} />
+            {/* Category Banner Hero */}
+            <div className={`mt-8 rounded-3xl bg-gradient-to-r ${activeCategoryMeta.g} p-8 md:p-12 relative overflow-hidden shadow-2xl`}>
+              <div className="relative z-10 max-w-2xl">
+                <div className="text-6xl mb-4">{activeCategoryMeta.e}</div>
+                <h1 className="font-display text-4xl md:text-5xl font-extrabold text-white">
+                  {activeCategoryMeta.n} Excuses
+                </h1>
+                <p className="mt-3 text-lg text-white/80 leading-relaxed">
+                  {activeCategoryMeta.desc}
+                </p>
+                <div className="mt-6 flex items-center gap-4 text-xs font-semibold text-white/90">
+                  <span className="rounded-full bg-black/20 px-3.5 py-1 backdrop-blur-md">
+                    {categoryExcuses.length} Curated Stories
+                  </span>
+                  <span className="rounded-full bg-black/20 px-3.5 py-1 backdrop-blur-md">
+                    AI Believability Tested
+                  </span>
                 </div>
-                <div className="mt-2 text-sm text-slate-400">Excuses analyzed</div>
-              </div>
-            </Reveal>
-            <Reveal d={80}>
-              <div className="glass p-6 text-center">
-                <div className="font-display text-4xl font-extrabold text-white">
-                  <Counter to={platformStats.totalUsers} suffix="+" dec={0} />
-                </div>
-                <div className="mt-2 text-sm text-slate-400">Active members</div>
-              </div>
-            </Reveal>
-            <Reveal d={160}>
-              <div className="glass p-6 text-center">
-                <div className="font-display text-4xl font-extrabold text-white">
-                  <Counter to={platformStats.avgPlausibility} suffix="%" dec={0} />
-                </div>
-                <div className="mt-2 text-sm text-slate-400">Average plausibility</div>
-              </div>
-            </Reveal>
-            <Reveal d={240}>
-              <div className="glass p-6 text-center">
-                <div className="font-display text-4xl font-extrabold text-white">
-                  <Counter to={4.8} suffix="/5" dec={1} />
-                </div>
-                <div className="mt-2 text-sm text-slate-400">Community trust rating</div>
-              </div>
-            </Reveal>
-          </div>
-        </section>
-
-        {/* Explore & Category Filter Section */}
-        <section id="trending" className="mx-auto max-w-6xl px-6 py-20">
-          <Reveal>
-            <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
-              <div>
-                <h2 className="font-display text-4xl font-bold text-white">Community Excuses</h2>
-                <p className="mt-2 text-slate-400">Browse live excuses stress-tested by members and rated by AI.</p>
-              </div>
-
-              {/* Sort pills */}
-              <div className="flex items-center gap-2 self-start rounded-full border border-white/10 bg-white/5 p-1 text-xs">
-                <button
-                  onClick={() => setSelectedSort("trending")}
-                  className={`rounded-full px-3 py-1.5 transition ${
-                    selectedSort === "trending" ? "bg-white/20 text-white font-semibold" : "text-slate-400 hover:text-white"
-                  }`}
-                >
-                  Trending
-                </button>
-                <button
-                  onClick={() => setSelectedSort("top")}
-                  className={`rounded-full px-3 py-1.5 transition ${
-                    selectedSort === "top" ? "bg-white/20 text-white font-semibold" : "text-slate-400 hover:text-white"
-                  }`}
-                >
-                  Top Believability
-                </button>
-                <button
-                  onClick={() => setSelectedSort("saves")}
-                  className={`rounded-full px-3 py-1.5 transition ${
-                    selectedSort === "saves" ? "bg-white/20 text-white font-semibold" : "text-slate-400 hover:text-white"
-                  }`}
-                >
-                  Most Saved
-                </button>
               </div>
             </div>
 
-            {/* Category Filter Pills */}
-            <div className="mt-8 flex flex-wrap gap-2 pb-2">
-              <button
-                onClick={() => setSelectedCategory("All")}
-                className={`rounded-full px-4 py-1.5 text-xs font-medium transition ${
-                  selectedCategory === "All"
-                    ? "bg-gradient-to-r from-violet to-hotpink text-white font-semibold shadow-[0_0_15px_rgba(236,72,153,.4)]"
-                    : "border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"
-                }`}
-              >
-                All Categories
-              </button>
+            {/* Category Selector Pills */}
+            <div className="mt-8 flex flex-wrap gap-2 border-b border-white/10 pb-6">
               {CATEGORIES.map((cat) => (
                 <button
                   key={cat.n}
-                  onClick={() => setSelectedCategory(cat.n)}
-                  className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition flex items-center gap-1.5 ${
-                    selectedCategory === cat.n
-                      ? "bg-gradient-to-r from-violet to-hotpink text-white font-semibold shadow-[0_0_15px_rgba(236,72,153,.4)]"
+                  onClick={() => setActiveCategory(cat.n)}
+                  className={`rounded-full px-4 py-2 text-xs font-medium transition flex items-center gap-2 ${
+                    activeCategory === cat.n
+                      ? "bg-white text-slate-900 font-bold shadow-lg"
                       : "border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"
                   }`}
                 >
@@ -613,20 +611,103 @@ export default function App() {
                 </button>
               ))}
             </div>
-          </Reveal>
 
-          {/* Cards Grid */}
-          <div className="mt-8 grid gap-6 md:grid-cols-3">
-            {activeExcuses.map((e, i) => {
-              const text = e.text || e.t || "";
-              const score = e.score ?? e.s ?? 82;
-              const category = e.category || e.cat || "General";
-              const author = e.author || e.by || "@anonymous";
-              const verdict = e.verdict || (score >= 88 ? "Bulletproof Lie" : score >= 80 ? "Corporate Gold" : "High Plausibility");
+            {/* Category Excuses List */}
+            <div className="mt-8">
+              {categoryExcuses.length > 0 ? (
+                <div className="grid gap-6 md:grid-cols-3">
+                  {categoryExcuses.map((e, i) => {
+                    const text = e.text || e.t || "";
+                    const score = e.score ?? e.s ?? 85;
+                    const author = e.author || e.by || "@anonymous";
+                    const verdict = e.verdict || (score >= 88 ? "Bulletproof Lie" : "High Plausibility");
 
-              return (
-                <Reveal key={e._id || `${text}-${i}`} d={i * 60}>
-                  <Card className="flex h-full flex-col justify-between">
+                    return (
+                      <Card key={e._id || `${text}-${i}`} className="flex h-full flex-col justify-between">
+                        <div>
+                          <div className="flex items-start justify-between gap-4">
+                            <span className="text-[10px] uppercase tracking-wider text-pink-300 font-bold bg-pink-500/10 px-2.5 py-1 rounded-full border border-pink-500/20">
+                              {verdict}
+                            </span>
+                            <Ring s={score} />
+                          </div>
+                          <p className="mt-4 text-base font-medium leading-relaxed text-slate-100">“{text}”</p>
+                        </div>
+
+                        <div className="mt-6 flex items-center justify-between border-t border-white/5 pt-4 text-xs text-slate-400">
+                          <span>{author} · {e.saves} saves</span>
+                          <div className="flex items-center gap-2">
+                            <CopyButton text={text} />
+                            <SaveButton
+                              id={e._id}
+                              token={token}
+                              onSave={() => {
+                                setCategoryExcuses((prev) =>
+                                  prev.map((item) =>
+                                    item._id && item._id === e._id ? { ...item, saves: item.saves + 1 } : item
+                                  )
+                                );
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </Card>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="glass p-16 text-center rounded-3xl mt-6">
+                  <div className="text-4xl">💭</div>
+                  <h3 className="mt-4 text-xl font-bold text-white">No {activeCategory} excuses posted yet</h3>
+                  <p className="mt-2 text-slate-400 text-sm max-w-md mx-auto">
+                    Be the first to submit a plausible excuse for this category and let the AI score it.
+                  </p>
+                  <button
+                    onClick={() => {
+                      setFormCategory(activeCategory);
+                      setIsModalOpen(true);
+                    }}
+                    className="mt-6 btn-glow rounded-full bg-gradient-to-r from-violet to-hotpink px-6 py-2.5 text-xs font-semibold text-white"
+                  >
+                    Post First {activeCategory} Excuse
+                  </button>
+                </div>
+              )}
+            </div>
+          </main>
+        )}
+
+        {/* ================= VIEW 2: NEW / FRESH SUBMISSIONS PAGE ================= */}
+        {currentPage === "new" && (
+          <main className="mx-auto max-w-6xl px-6 py-10 min-h-screen">
+            <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+              <div>
+                <span className="text-xs uppercase tracking-widest text-electric font-semibold">Live Community Submissions</span>
+                <h1 className="font-display text-4xl md:text-5xl font-extrabold text-white mt-1">
+                  ✨ Fresh Excuses Feed
+                </h1>
+                <p className="mt-2 text-slate-400">
+                  Real-time excuses submitted by members across the globe, scored on the fly by AI.
+                </p>
+              </div>
+              <button
+                onClick={() => setIsModalOpen(true)}
+                className="self-start rounded-full bg-gradient-to-r from-violet to-hotpink px-6 py-3 text-xs font-bold text-white shadow-lg transition hover:opacity-90"
+              >
+                + Submit New Excuse
+              </button>
+            </div>
+
+            <div className="mt-10 grid gap-6 md:grid-cols-3">
+              {(newExcuses.length > 0 ? newExcuses : excuses).map((e, i) => {
+                const text = e.text || e.t || "";
+                const score = e.score ?? e.s ?? 80;
+                const category = e.category || e.cat || "General";
+                const author = e.author || e.by || "@anonymous";
+                const verdict = e.verdict || (score >= 88 ? "Bulletproof Lie" : "High Plausibility");
+
+                return (
+                  <Card key={e._id || `${text}-${i}`} className="flex h-full flex-col justify-between">
                     <div>
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex flex-col gap-1">
@@ -643,16 +724,14 @@ export default function App() {
                     </div>
 
                     <div className="mt-6 flex items-center justify-between border-t border-white/5 pt-4 text-xs text-slate-400">
-                      <span>
-                        {author} · {e.saves} saves
-                      </span>
+                      <span>{author} · {e.saves} saves</span>
                       <div className="flex items-center gap-2">
                         <CopyButton text={text} />
                         <SaveButton
                           id={e._id}
                           token={token}
                           onSave={() => {
-                            setExcuses((prev) =>
+                            setNewExcuses((prev) =>
                               prev.map((item) =>
                                 item._id && item._id === e._id ? { ...item, saves: item.saves + 1 } : item
                               )
@@ -662,119 +741,245 @@ export default function App() {
                       </div>
                     </div>
                   </Card>
-                </Reveal>
-              );
-            })}
-          </div>
-        </section>
+                );
+              })}
+            </div>
+          </main>
+        )}
 
-        {/* Features */}
-        <section className="mx-auto max-w-6xl px-6 py-20">
-          <Reveal>
-            <h2 className="font-display text-4xl font-bold text-white">Why Plausible Works</h2>
-          </Reveal>
-          <div className="mt-10 grid gap-6 md:grid-cols-3">
-            {FEATURES.map((f, i) => (
-              <Reveal key={f.h} d={i * 80} className="h-full">
-                <div className="card h-full rounded-2xl bg-gradient-to-br from-violet via-hotpink to-electric p-px">
-                  <div className="h-full rounded-2xl bg-[#14112a] p-7">
-                    <div className="text-3xl">{f.i}</div>
-                    <h3 className="mt-4 font-display text-xl font-semibold text-white">{f.h}</h3>
-                    <p className="mt-2 text-sm leading-relaxed text-slate-400">{f.p}</p>
-                  </div>
-                </div>
-              </Reveal>
-            ))}
-          </div>
-        </section>
+        {/* ================= VIEW 3: LEADERBOARD PAGE ================= */}
+        {currentPage === "leaderboard" && (
+          <main className="mx-auto max-w-6xl px-6 py-10 min-h-screen">
+            <div>
+              <span className="text-xs uppercase tracking-widest text-amber-400 font-semibold">Hall of Fame</span>
+              <h1 className="font-display text-4xl md:text-5xl font-extrabold text-white mt-1">
+                🏆 Top Rated Excuses
+              </h1>
+              <p className="mt-2 text-slate-400">
+                The all-time greatest alibis, tested and upvoted by thousands of community members.
+              </p>
+            </div>
 
-        {/* Leaderboard */}
-        <section id="rated" className="mx-auto max-w-6xl px-6 py-20">
-          <Reveal>
-            <h2 className="font-display text-4xl font-bold text-white">All-Time Hall of Fame</h2>
-            <p className="mt-2 text-slate-400">Excuses with the highest verified believability ratios.</p>
-          </Reveal>
-          <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {DEFAULT_RATED.map((e, i) => (
-              <Reveal key={e.t || i} d={i * 80}>
-                <Card className="p-5 flex flex-col justify-between">
+            <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+              {DEFAULT_RATED.map((e, i) => (
+                <Card key={e.t || i} className="p-6 flex flex-col justify-between border-amber-500/20 bg-gradient-to-b from-white/5 to-amber-500/5">
                   <div>
                     <div className="flex items-center justify-between text-xs">
-                      <span className="text-electric font-medium">{e.cat}</span>
-                      <span className="text-amber-300 font-semibold">★ {e.r}</span>
+                      <span className="text-electric font-semibold">{e.cat}</span>
+                      <span className="text-amber-300 font-bold flex items-center gap-1">
+                        ★ {e.r}
+                      </span>
                     </div>
-                    <p className="mt-3 text-sm font-medium leading-snug text-white">“{e.t}”</p>
+                    <p className="mt-4 text-base font-medium leading-snug text-white">“{e.t}”</p>
                   </div>
-                  <div className="mt-4 flex items-center justify-between text-xs text-slate-400 border-t border-white/5 pt-3">
-                    <span>{e.s}% Believable</span>
+                  <div className="mt-6 flex items-center justify-between text-xs text-slate-400 border-t border-white/5 pt-4">
+                    <span className="font-semibold text-emerald-400">{e.s}% Plausible</span>
                     <CopyButton text={e.t || ""} />
                   </div>
                 </Card>
-              </Reveal>
-            ))}
-          </div>
-        </section>
-
-        {/* Categories */}
-        <section id="categories" className="mx-auto max-w-6xl px-6 py-20">
-          <Reveal>
-            <h2 className="font-display text-4xl font-bold text-white">Browse by Scenario</h2>
-          </Reveal>
-          <div className="mt-10 grid grid-cols-2 gap-4 md:grid-cols-4">
-            {CATEGORIES.map((c, i) => (
-              <Reveal key={c.n} d={i * 80}>
-                <button
-                  onClick={() => {
-                    setSelectedCategory(c.n);
-                    const el = document.getElementById("trending");
-                    if (el) el.scrollIntoView({ behavior: "smooth" });
-                  }}
-                  className={`w-full text-left group block rounded-2xl bg-gradient-to-br ${c.g} p-6 transition duration-300 hover:-translate-y-1 hover:shadow-[0_0_40px_-5px_rgba(139,92,246,.6)]`}
-                >
-                  <div className="text-4xl transition duration-300 group-hover:scale-110">{c.e}</div>
-                  <div className="mt-6 font-display text-lg font-semibold text-white">{c.n}</div>
-                </button>
-              </Reveal>
-            ))}
-          </div>
-        </section>
-
-        {/* CTA */}
-        <section id="submit" className="mx-auto max-w-6xl px-6 py-24">
-          <Reveal>
-            <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-violet/40 via-[#16112e] to-hotpink/30 px-8 py-20 text-center">
-              <div className="orb -right-20 -top-20 h-72 w-72 bg-hotpink" />
-              <div className="orb -bottom-24 left-0 h-72 w-72 bg-electric" style={{ animationDelay: "-6s" }} />
-              <h2 className="relative font-display text-4xl font-extrabold text-white sm:text-6xl">
-                Your next excuse deserves an audience.
-              </h2>
-              <p className="relative mx-auto mt-5 max-w-lg text-slate-300">
-                Submit your excuse, let our AI rate its believability, and see how it ranks against the community.
-              </p>
-              <div className="relative mt-10 flex flex-wrap justify-center gap-4">
-                <button
-                  onClick={() => setIsModalOpen(true)}
-                  className="btn-glow rounded-full bg-white px-7 py-3.5 font-semibold text-slate-900 hover:-translate-y-0.5"
-                >
-                  Score an Excuse
-                </button>
-                <a
-                  href="#trending"
-                  className="btn-glow glass rounded-full px-7 py-3.5 font-semibold text-white hover:bg-white/10"
-                >
-                  Browse Top Excuses
-                </a>
-              </div>
+              ))}
             </div>
-          </Reveal>
-        </section>
+          </main>
+        )}
 
-        <footer className="border-t border-white/10 px-6 py-10 text-center text-sm text-slate-500">
+        {/* ================= VIEW 4: HOME & TRENDING PAGE ================= */}
+        {currentPage === "home" && (
+          <>
+            {/* Hero */}
+            <section className="relative flex min-h-[85vh] items-center justify-center overflow-hidden px-6">
+              <div className="grid-bg absolute inset-0" />
+              <div className="orb -left-24 top-20 h-96 w-96 bg-violet" />
+              <div className="orb right-0 top-1/3 h-80 w-80 bg-electric" style={{ animationDelay: "-5s" }} />
+              <div className="orb bottom-0 left-1/3 h-72 w-72 bg-hotpink" style={{ animationDelay: "-9s" }} />
+              
+              <div className="relative max-w-4xl text-center">
+                <div className="inline-flex items-center gap-2 rounded-full border border-pink-500/30 bg-pink-500/10 px-4 py-1.5 text-xs font-semibold text-pink-300 mb-6 backdrop-blur-sm">
+                  <span>✨ AI-Powered Excuse Scoring Engine</span>
+                </div>
+                <h1 className="grad-text font-display text-5xl font-extrabold leading-[1.05] sm:text-7xl">
+                  Got an excuse? Make it plausible.
+                </h1>
+                <p className="mx-auto mt-6 max-w-xl text-lg text-slate-400">
+                  Trade, stress-test, and benchmark excuses with a community that takes believability seriously.
+                  Our model scores every story for plausibility, creativity, and tone.
+                </p>
+                <div className="mt-10 flex flex-wrap justify-center gap-4">
+                  <a
+                    href="#trending-section"
+                    className="btn-glow rounded-full bg-gradient-to-r from-violet to-hotpink px-7 py-3.5 font-semibold text-white hover:-translate-y-0.5"
+                  >
+                    Explore Trending
+                  </a>
+                  <button
+                    onClick={() => setIsModalOpen(true)}
+                    className="btn-glow glass rounded-full px-7 py-3.5 font-semibold text-white hover:bg-white/10"
+                  >
+                    Score Your Excuse
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            {/* Dynamic Stats */}
+            <section className="mx-auto max-w-6xl px-6 py-12">
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                <Reveal d={0}>
+                  <div className="glass p-6 text-center">
+                    <div className="font-display text-4xl font-extrabold text-white">
+                      <Counter to={platformStats.totalExcuses} suffix="+" dec={0} />
+                    </div>
+                    <div className="mt-2 text-sm text-slate-400">Excuses analyzed</div>
+                  </div>
+                </Reveal>
+                <Reveal d={80}>
+                  <div className="glass p-6 text-center">
+                    <div className="font-display text-4xl font-extrabold text-white">
+                      <Counter to={platformStats.totalUsers} suffix="+" dec={0} />
+                    </div>
+                    <div className="mt-2 text-sm text-slate-400">Active members</div>
+                  </div>
+                </Reveal>
+                <Reveal d={160}>
+                  <div className="glass p-6 text-center">
+                    <div className="font-display text-4xl font-extrabold text-white">
+                      <Counter to={platformStats.avgPlausibility} suffix="%" dec={0} />
+                    </div>
+                    <div className="mt-2 text-sm text-slate-400">Average plausibility</div>
+                  </div>
+                </Reveal>
+                <Reveal d={240}>
+                  <div className="glass p-6 text-center">
+                    <div className="font-display text-4xl font-extrabold text-white">
+                      <Counter to={4.8} suffix="/5" dec={1} />
+                    </div>
+                    <div className="mt-2 text-sm text-slate-400">Community trust rating</div>
+                  </div>
+                </Reveal>
+              </div>
+            </section>
+
+            {/* Trending Section (ONLY ON HOME PAGE) */}
+            <section id="trending-section" className="mx-auto max-w-6xl px-6 py-16">
+              <Reveal>
+                <div className="flex items-end justify-between">
+                  <div>
+                    <h2 className="font-display text-4xl font-bold text-white">Trending Now</h2>
+                    <p className="mt-2 text-slate-400">The most believable and saved excuses this week.</p>
+                  </div>
+                  <button
+                    onClick={() => setCurrentPage("new")}
+                    className="text-xs text-electric hover:underline font-semibold"
+                  >
+                    View All New →
+                  </button>
+                </div>
+              </Reveal>
+
+              <div className="mt-8 grid gap-6 md:grid-cols-3">
+                {excuses.slice(0, 6).map((e, i) => {
+                  const text = e.text || e.t || "";
+                  const score = e.score ?? e.s ?? 82;
+                  const category = e.category || e.cat || "General";
+                  const author = e.author || e.by || "@anonymous";
+                  const verdict = e.verdict || (score >= 88 ? "Bulletproof Lie" : "High Plausibility");
+
+                  return (
+                    <Reveal key={e._id || `${text}-${i}`} d={i * 60}>
+                      <Card className="flex h-full flex-col justify-between">
+                        <div>
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex flex-col gap-1">
+                              <span className="w-fit rounded-full bg-white/5 px-2.5 py-0.5 text-[11px] font-semibold text-electric">
+                                {category}
+                              </span>
+                              <span className="text-[10px] uppercase tracking-wider text-pink-300 font-bold">
+                                {verdict}
+                              </span>
+                            </div>
+                            <Ring s={score} />
+                          </div>
+                          <p className="mt-4 text-base font-medium leading-relaxed text-slate-100">“{text}”</p>
+                        </div>
+
+                        <div className="mt-6 flex items-center justify-between border-t border-white/5 pt-4 text-xs text-slate-400">
+                          <span>{author} · {e.saves} saves</span>
+                          <div className="flex items-center gap-2">
+                            <CopyButton text={text} />
+                            <SaveButton
+                              id={e._id}
+                              token={token}
+                              onSave={() => {
+                                setExcuses((prev) =>
+                                  prev.map((item) =>
+                                    item._id && item._id === e._id ? { ...item, saves: item.saves + 1 } : item
+                                  )
+                                );
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </Card>
+                    </Reveal>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* Browse Categories (Clicking navigates to dedicated Category Page) */}
+            <section className="mx-auto max-w-6xl px-6 py-16">
+              <Reveal>
+                <div className="text-center max-w-2xl mx-auto">
+                  <h2 className="font-display text-4xl font-bold text-white">Browse by Category</h2>
+                  <p className="mt-2 text-slate-400">Select any scenario to view its dedicated excuse catalog.</p>
+                </div>
+              </Reveal>
+              <div className="mt-10 grid grid-cols-2 gap-4 md:grid-cols-4">
+                {CATEGORIES.map((c, i) => (
+                  <Reveal key={c.n} d={i * 60}>
+                    <button
+                      onClick={() => {
+                        setActiveCategory(c.n);
+                        setCurrentPage("category");
+                      }}
+                      className={`w-full text-left group block rounded-2xl bg-gradient-to-br ${c.g} p-6 transition duration-300 hover:-translate-y-1.5 hover:shadow-[0_0_40px_-5px_rgba(139,92,246,.6)]`}
+                    >
+                      <div className="text-4xl transition duration-300 group-hover:scale-110">{c.e}</div>
+                      <div className="mt-6 font-display text-lg font-semibold text-white">{c.n}</div>
+                      <div className="mt-1 text-xs text-white/70">View collection →</div>
+                    </button>
+                  </Reveal>
+                ))}
+              </div>
+            </section>
+
+            {/* Features */}
+            <section className="mx-auto max-w-6xl px-6 py-16">
+              <Reveal>
+                <h2 className="font-display text-4xl font-bold text-white text-center">Why Plausible Works</h2>
+              </Reveal>
+              <div className="mt-10 grid gap-6 md:grid-cols-3">
+                {FEATURES.map((f, i) => (
+                  <Reveal key={f.h} d={i * 80} className="h-full">
+                    <div className="card h-full rounded-2xl bg-gradient-to-br from-violet via-hotpink to-electric p-px">
+                      <div className="h-full rounded-2xl bg-[#14112a] p-7">
+                        <div className="text-3xl">{f.i}</div>
+                        <h3 className="mt-4 font-display text-xl font-semibold text-white">{f.h}</h3>
+                        <p className="mt-2 text-sm leading-relaxed text-slate-400">{f.p}</p>
+                      </div>
+                    </div>
+                  </Reveal>
+                ))}
+              </div>
+            </section>
+          </>
+        )}
+
+        <footer className="border-t border-white/10 px-6 py-10 text-center text-sm text-slate-500 mt-16">
           Plausible. Excuses, scored with a straight face.
         </footer>
       </div>
 
-      {/* Auth Modal (Sign In / Sign Up) */}
+      {/* Auth Modal */}
       {isAuthModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md">
           <div className="glass card relative w-full max-w-md rounded-3xl border border-white/20 p-8 shadow-2xl">
@@ -785,7 +990,6 @@ export default function App() {
               ✕
             </button>
 
-            {/* Tabs */}
             <div className="flex border-b border-white/10 pb-4 gap-4">
               <button
                 onClick={() => {
@@ -899,7 +1103,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Realistic Submit Excuse Modal */}
+      {/* Submit Excuse Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md">
           <div className="glass card relative w-full max-w-lg rounded-3xl border border-white/20 p-8 shadow-2xl">
