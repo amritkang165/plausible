@@ -3,7 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { isDbConnected, lastDbError } from "./db";
+import { connectDB, isDbConnected, lastDbError } from "./db";
 import { Excuse } from "./models/Excuse";
 import { User } from "./models/User";
 import { requireAuth, optionalAuth, AuthenticatedRequest } from "./middleware/auth";
@@ -15,6 +15,19 @@ const JWT_SECRET = process.env.JWT_SECRET || "plausible_jwt_default_secret_key";
 
 app.use(cors());
 app.use(express.json());
+
+// Ensure URL normalization and database connection on every request
+app.use(async (req, _res, next) => {
+  if (req.url && !req.url.startsWith("/api")) {
+    req.url = `/api${req.url}`;
+  }
+  try {
+    await connectDB();
+  } catch (err) {
+    console.error("Middleware DB connection error:", err);
+  }
+  next();
+});
 
 // API health and DB connection status
 app.get("/api/status", (_req, res) => {

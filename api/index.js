@@ -136,6 +136,17 @@ var app = express();
 var JWT_SECRET2 = process.env.JWT_SECRET || "plausible_jwt_default_secret_key";
 app.use(cors());
 app.use(express.json());
+app.use(async (req, _res, next) => {
+  if (req.url && !req.url.startsWith("/api")) {
+    req.url = `/api${req.url}`;
+  }
+  try {
+    await connectDB();
+  } catch (err) {
+    console.error("Middleware DB connection error:", err);
+  }
+  next();
+});
 app.get("/api/status", (_req, res) => {
   const connected = isDbConnected();
   const hasUri = !!process.env.MONGODB_URI;
@@ -414,46 +425,7 @@ app.post("/api/excuses/:id/save", optionalAuth, async (req, res) => {
 });
 var app_default = app;
 
-// server/seed.ts
-var INITIAL_EXCUSES = [
-  { text: "My cat submitted the expense report. Accounting is reviewing it.", score: 91, category: "Pets", author: "@nightowl", saves: 412, rating: "4.9" },
-  { text: "The printer ate my homework, then it ate the printer.", score: 78, category: "School", author: "@brokenbeat", saves: 287, rating: "4.5" },
-  { text: "I was stuck in a two-hour meeting about meetings. That's how I got here.", score: 84, category: "Work", author: "@tabsnotspaces", saves: 359, rating: "4.8" },
-  { text: "Ring road traffic was a sentient being today.", score: 88, category: "Travel", author: "@commuter", saves: 198, rating: "4.9" },
-  { text: "My phone hit 1%, so I was emotionally unavailable.", score: 73, category: "Dating", author: "@offline", saves: 145, rating: "4.7" },
-  { text: "The gym was closed for emotional reasons.", score: 69, category: "Health", author: "@couchpotato", saves: 210, rating: "4.6" },
-  { text: "The Wi-Fi password was the excuse. I was the password.", score: 81, category: "Tech", author: "@sysadmin", saves: 320, rating: "4.8" }
-];
-async function seedInitialData() {
-  try {
-    const count = await Excuse.countDocuments();
-    if (count === 0) {
-      console.log("\u{1F331} [MongoDB] Seeding initial excuses into database...");
-      await Excuse.insertMany(INITIAL_EXCUSES);
-      console.log("\u2705 [MongoDB] Initial excuses seeded successfully.");
-    }
-  } catch (error) {
-    console.error("\u26A0\uFE0F  [MongoDB] Seed error:", error instanceof Error ? error.message : error);
-  }
-}
-
 // server/serverless.ts
-var isSeeded = false;
-app_default.use(async (req, _res, next) => {
-  if (!req.url.startsWith("/api")) {
-    req.url = `/api${req.url}`;
-  }
-  try {
-    const connected = await connectDB();
-    if (connected && !isSeeded) {
-      await seedInitialData();
-      isSeeded = true;
-    }
-  } catch (err) {
-    console.error("Serverless DB connection error:", err);
-  }
-  next();
-});
 var serverless_default = app_default;
 export {
   serverless_default as default
